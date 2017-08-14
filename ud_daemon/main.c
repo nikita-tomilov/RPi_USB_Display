@@ -111,8 +111,11 @@ int main(int argc, char **argv)
 	set_interface_attribs (fd, B1000000, /*B230400,*/ 0);  // set speed to 115,200 bps, 8n1 (no parity)
 	set_blocking (fd, 0);                // set no blocking
 	
+	sleep(3); //wait for arduino to get ready
+
 	while (1) {
 		send_raw(fd, dump_path);
+		usleep(50 * 1000); //to avoid arduino hiccups
 	}
 
 	return 0;

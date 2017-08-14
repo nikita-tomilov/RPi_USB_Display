@@ -6,5 +6,7 @@ Module.symvers
 *.o
 *.ko
 *.d
+ud_daemon/main.o
+ud_daemon/uddaemon
 modules.order
 *.dtb
