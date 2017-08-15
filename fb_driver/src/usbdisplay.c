@@ -76,7 +76,7 @@ static void write_file(char *filename, uint8_t* data, long len)
 #define WIDTH               320
 #define HEIGHT              240
 #define BITS_PER_PIXEL      16
-#define DUMP_PATH           "/home/pi/dump.bin"
+#define DUMP_PATH           "/tmp/fbdump.bin"
 
 #define VIDEOMEMSIZE        153600
 
