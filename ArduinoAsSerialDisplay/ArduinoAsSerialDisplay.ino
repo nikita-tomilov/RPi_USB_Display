@@ -45,10 +45,11 @@ void setup(void) {
     Serial.begin(1000000);
     tft.begin(0x1520);
     tft.setRotation(1);
-    tft.fillScreen(BLACK);
+    tft.fillScreen(WHITE);
+    delay(100);
 }
 
-#define uart_buf_pixel_count 20
+#define uart_buf_pixel_count 16
 #define uart_buf_size uart_buf_pixel_count * 2
 
 byte count = 0;
@@ -57,16 +58,46 @@ byte is_first = 1;
 byte img[uart_buf_size];
 
 long total_pixels_count = 0;
+volatile uint16_t x = 0, y = 0;
+volatile uint16_t oldx = 0, oldy = 0;
+volatile uint16_t newx = 0, newy = 0;
+
+uint16_t color = 0;
+
+#define GOTOXYCMD     0xFF
+
+bool jump = false;
 
 void loop(void) {
     if (Serial.available() >= uart_buf_size) {
       Serial.readBytes(img, uart_buf_size);
-      tft.pushColors((img), uart_buf_pixel_count, is_first);
-      is_first = 0;
-      total_pixels_count += uart_buf_pixel_count;
-      if (total_pixels_count == 76800) {
-        is_first = 1;
-        total_pixels_count = 0;
+      for (int offset = 0; offset < uart_buf_size; offset += 2) {
+        if ((img[offset] == GOTOXYCMD) /*&& (img[offset+4] == ~GOTOXYCMD & 0xFF)*/) {
+            
+        
+          //if ((img[offset+1] == ~img[offset+5]) && (img[offset+2] == ~img[offset+6]) && (img[offset+3] == ~img[offset+7])) {
+            newx = (((int16_t)(img[offset + 2]) & 0x3) << 8) | (int16_t)(img[offset + 3]);
+            newy = (int16_t)(img[offset + 1]);            
+
+          if ((img[offset + 2] & 0xFC) == (0x54)) {
+              x = newx;
+              y = newy;
+              offset += 4;
+              jump = true;
+          }
+          //}
+          //jump = true;
+        } 
+
+        if (offset >= uart_buf_size - 1) break;
+        color = ((int)img[offset] << 8) | img[offset + 1];
+
+        if (jump == true) { jump = false; tft.drawPixel(x, y, color);}
+        tft.drawPixel(x, y, color);
+
+        oldx = x;
+        x++;
+        if (x >= 320L) { oldy = y; y++; x=0; }
       }
     }
 }
