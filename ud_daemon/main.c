@@ -10,7 +10,6 @@
 
 char *portname = "/dev/ttyACM0";
 char *dump_path = "/tmp/fbdump.bin";
-#define bytes_per_write 24
 
 int
 set_interface_attribs (int fd, int speed, int parity)
@@ -70,22 +69,19 @@ set_blocking (int fd, int should_block)
        
 }
 
-uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3); }
-
-#define GOTOXYCMD     0xFF
 #define MASK_MILD 0xE79C
 #define MASK_STRONG 0xF7DE
-
+uint16_t color565(uint8_t r, uint8_t g, uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3); }
 int check_same_color(uint16_t a, uint16_t b, uint16_t mask) {
     return ((a & mask) == (b & mask));
 }
-
 int check_same_color_2(uint8_t a1, uint8_t a2, uint8_t b1, uint8_t b2, uint16_t mask) {
     uint16_t a = ((uint16_t)(a1) << 8) | a2;
     uint16_t b = ((uint16_t)(b1) << 8) | b2;
     return ((a & mask) == (b & mask));
 }
 
+int bytes_per_write = 24;
 void send_raw(int fd, char* path) {
 	uint8_t buf[320 * 240 * 2];
 	//printf("Preprocessing...\n");
@@ -109,12 +105,15 @@ void send_raw(int fd, char* path) {
 	}
 }
 
+#define PIXELS_PER_CHUNK 8
+#define BYTES_PER_CHUNK PIXELS_PER_CHUNK * 2
+
+#define CHUNKS_PER_WRITE 4
+#define BYTES_PER_WRITE (4 + BYTES_PER_CHUNK) * CHUNKS_PER_WRITE
+
 uint8_t oldbuf[320 * 240 * 2];
 uint8_t buf[320 * 240 * 2];
-uint8_t flashbuf[320 * 240 * 3];
-
-int not_update_everything = 0;
-int update_counter = 50;
+uint8_t flashbuf[320 * 240 * 6];
 
 void send_raw_withxy(int fd, char* path) {
 	//printf("Preprocessing...\n");
@@ -137,53 +136,43 @@ void send_raw_withxy(int fd, char* path) {
 	//printf("Flashing...\n");
 	
 	long offset = 0;
-	uint32_t same_count = 0;
 
 	int x = 0, y = 0;
+	int has_diff = 0;
 	
-		
-	flashbuf[offset] = GOTOXYCMD; offset++;
-	flashbuf[offset] = 0x0; offset++;
-	flashbuf[offset] = 0x54;offset++;
-	flashbuf[offset] = 0x0; offset++;
 
-	
-	for (int i = 0; i < sizeof(buf); i += 2) {
-	    //if ((buf[i] == oldbuf[i]) && (buf[i+1] == oldbuf[i+1])) {
-	    if (check_same_color_2(buf[i], buf[i+1], oldbuf[i], oldbuf[i+1], MASK_STRONG) && not_update_everything) {
-			same_count++;
-	    } else {
-		if (same_count != 0) {
-		    flashbuf[offset] = GOTOXYCMD; offset++;
-		    flashbuf[offset] = (uint8_t)((y) & 0xFF); offset++;
-		    flashbuf[offset] = (uint8_t)((x >> 8) & 0x3) | (0x54); offset++;
-		    flashbuf[offset] = (uint8_t)((x) & 0xFF); offset++;
+	for (int i = 0; i < sizeof(buf); i += BYTES_PER_CHUNK) {
 
-		    //printf("gotoxy: %d;%d\n", x, y);
-		    same_count = 0;
+	    for (int j = 0; j < BYTES_PER_CHUNK; j+=2) {
+		if (!check_same_color_2(buf[i + j], buf[i + j + 1], oldbuf[i + j], oldbuf[i + j + 1], MASK_MILD)) {
+		    has_diff = 1;
+		    break;
 		}
-		if (buf[i] == GOTOXYCMD) buf[i] = GOTOXYCMD - 1;
-		if (buf[i+1] == GOTOXYCMD) buf[i+1] = GOTOXYCMD - 1;
-		flashbuf[offset] = buf[i]; offset++;
-		flashbuf[offset] = buf[i + 1]; offset++;
 	    }
-	    x++;
+
+	    if (has_diff) {
+			flashbuf[offset] = (uint8_t)((x >> 8) & 0xFF); offset++;
+			flashbuf[offset] = (uint8_t)((x) & 0xFF); offset++;
+			flashbuf[offset] = (uint8_t)((y >> 8) & 0xFF); offset++;
+			flashbuf[offset] = (uint8_t)((y) & 0xFF); offset++;
+
+			memcpy(flashbuf + offset, buf + i, BYTES_PER_CHUNK);
+			offset += BYTES_PER_CHUNK;
+
+	    }
+	    has_diff = 0;
+	    
+	    x+=PIXELS_PER_CHUNK;
 	    if (x >= 320) { y++; x = 0; }
 	    if (y >= 240) { y = 0; x = 0; }
 	}
 
 	long count = offset;
 	offset = 0;
-	not_update_everything = 1;
 	
-	//printf("count = %d\n", count);
-
-	if (count < 700) { update_counter--; }
-	if (update_counter == 0) { update_counter = 50; not_update_everything = 0; }
 	
-	for (int i = 0; i < count; i += bytes_per_write) {
-		write(fd, flashbuf + i, bytes_per_write); 
-		usleep(700);
+	for (int i = 0; i < count; i += BYTES_PER_WRITE) {
+	    write(fd, flashbuf + i, BYTES_PER_WRITE); 
 	}
 }
 
@@ -199,7 +188,7 @@ int main(int argc, char **argv)
 	
 	printf("Using %s\n", portname);
 	
-	set_interface_attribs (fd, B1000000, /*B230400,*/ 0);  // set speed to 115,200 bps, 8n1 (no parity)
+	set_interface_attribs (fd, B921600, /*B230400,*/ 0);  // set speed to 115,200 bps, 8n1 (no parity)
 	set_blocking (fd, 0);                // set no blocking
 	
 	sleep(3); //wait for arduino to get ready
