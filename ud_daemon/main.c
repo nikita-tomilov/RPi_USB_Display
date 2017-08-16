@@ -115,6 +115,29 @@ uint8_t oldbuf[320 * 240 * 2];
 uint8_t buf[320 * 240 * 2];
 uint8_t flashbuf[320 * 240 * 6];
 
+void request_touch(int fd) {
+    //printf("touch request\n");
+
+    flashbuf[0] = 0xFF;
+    flashbuf[1] = 0xFF;
+    flashbuf[2] = 0xFF;
+    flashbuf[3] = 0xFF;
+    for (int i = 4; i < BYTES_PER_CHUNK; i++) flashbuf[i] = 0;
+    write(fd, flashbuf, BYTES_PER_WRITE);
+    usleep(100 * 1000);
+    uint16_t x, y, z;
+    read(fd, flashbuf, 36);
+    x = (((int16_t)(flashbuf[0])) << 8) | (int16_t)(flashbuf[1]);
+    y = (((int16_t)(flashbuf[2])) << 8) | (int16_t)(flashbuf[3]);
+    z = (((int16_t)(flashbuf[4])) << 8) | (int16_t)(flashbuf[5]);
+    if ((z > 5) && (z < 1000)) {
+    	printf("x=%d y=%d z=%d\n", x, y, z);
+    	char buf[256];
+    	sprintf(buf, "sudo DISPLAY=:1.0 xdotool mousemove %d %d click 1", x, y);
+    	system(buf);
+    }
+}
+
 void send_raw_withxy(int fd, char* path) {
 	//printf("Preprocessing...\n");
 	
@@ -170,7 +193,6 @@ void send_raw_withxy(int fd, char* path) {
 	long count = offset;
 	offset = 0;
 	
-	
 	for (int i = 0; i < count; i += BYTES_PER_WRITE) {
 	    write(fd, flashbuf + i, BYTES_PER_WRITE); 
 	}
@@ -195,6 +217,9 @@ int main(int argc, char **argv)
 
 	while (1) {
 		send_raw_withxy(fd, dump_path);
+
+		usleep(50 * 1000); //to avoid arduino hiccups
+		request_touch(fd);
 		usleep(50 * 1000); //to avoid arduino hiccups
 	}
 
