@@ -15,6 +15,7 @@
 #define LCD_RESET A4 // Can alternately just connect to Arduino's reset pin
 
 #include <SPI.h>          // f.k. for Arduino-1.5.2
+
 #include "Adafruit_GFX.h"// Hardware-specific library
 #include <MCUFRIEND_kbv.h>
 MCUFRIEND_kbv tft;
@@ -35,70 +36,44 @@ MCUFRIEND_kbv tft;
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
-
-
-uint16_t g_identifier;
-
-extern const uint8_t hanzi[];
-
 void setup(void) {
-    Serial.begin(1000000);
+    //Serial.begin(230400);
+    //Serial.begin(1000000);
+    //Serial.begin(500000);
+    Serial.begin(921600);
     tft.begin(0x1520);
     tft.setRotation(1);
     tft.fillScreen(WHITE);
+
     delay(100);
 }
 
-#define uart_buf_pixel_count 16
-#define uart_buf_size uart_buf_pixel_count * 2
+#define PIXELS_PER_CHUNK 8
+#define BYTES_PER_CHUNK PIXELS_PER_CHUNK * 2
 
-byte count = 0;
+#define CHUNKS_PER_READ 1
+#define BYTES_PER_READ ((4 + BYTES_PER_CHUNK) * CHUNKS_PER_READ)
+ 
+#define uart_buf_size BYTES_PER_READ
 
-byte is_first = 1;
+
 byte img[uart_buf_size];
 
-long total_pixels_count = 0;
-volatile uint16_t x = 0, y = 0;
-volatile uint16_t oldx = 0, oldy = 0;
+
 volatile uint16_t newx = 0, newy = 0;
 
 uint16_t color = 0;
 
-#define GOTOXYCMD     0xFF
 
-bool jump = false;
 
 void loop(void) {
     if (Serial.available() >= uart_buf_size) {
       Serial.readBytes(img, uart_buf_size);
-      for (int offset = 0; offset < uart_buf_size; offset += 2) {
-        if ((img[offset] == GOTOXYCMD) /*&& (img[offset+4] == ~GOTOXYCMD & 0xFF)*/) {
-            
-        
-          //if ((img[offset+1] == ~img[offset+5]) && (img[offset+2] == ~img[offset+6]) && (img[offset+3] == ~img[offset+7])) {
-            newx = (((int16_t)(img[offset + 2]) & 0x3) << 8) | (int16_t)(img[offset + 3]);
-            newy = (int16_t)(img[offset + 1]);            
+           newx = (((int16_t)(img[0])) << 8) | (int16_t)(img[1]);
+           newy = (((int16_t)(img[2])) << 8) | (int16_t)(img[3]);
 
-          if ((img[offset + 2] & 0xFC) == (0x54)) {
-              x = newx;
-              y = newy;
-              offset += 4;
-              jump = true;
-          }
-          //}
-          //jump = true;
-        } 
-
-        if (offset >= uart_buf_size - 1) break;
-        color = ((int)img[offset] << 8) | img[offset + 1];
-
-        if (jump == true) { jump = false; tft.drawPixel(x, y, color);}
-        tft.drawPixel(x, y, color);
-
-        oldx = x;
-        x++;
-        if (x >= 320L) { oldy = y; y++; x=0; }
-      }
+           tft.setAddrWindow(newx, newy, newx+PIXELS_PER_CHUNK-1, newy+1);
+           tft.pushColors(img + 4, PIXELS_PER_CHUNK, true);     
     }
 }
 
